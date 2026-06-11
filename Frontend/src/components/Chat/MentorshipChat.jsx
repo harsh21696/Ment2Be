@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo} from "react";
 import { useNavigate } from "react-router-dom";
 import { ChatHeader } from "./ChatHeader";
 import { ChatMessages } from "./ChatMessages";
@@ -21,23 +21,42 @@ export function MentorshipChat() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState(null);
   const [channel, setChannel] = useState(null);
+  const conversationMap = useMemo(() => {
+  const map = new Map();
+
+  conversations.forEach((conversation) => {
+    map.set(conversation.id, conversation);
+  });
+
+  return map;
+}, [conversations]);
 
   // Get current user info
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-  const token = localStorage.getItem('token');
-  
+ const currentUser = useMemo(() => {
+  try {
+    return JSON.parse(localStorage.getItem("user") || "{}");
+  } catch {
+    return {};
+  }
+}, []);
+
+const token = useMemo(
+  () => localStorage.getItem("token"),
+  []
+);
   // Get user ID (could be 'id' or '_id')
   const userId = currentUser.id || currentUser._id;
   
   // Debug authentication state
-  console.log('Auth Debug:', {
+ if (import.meta.env.DEV) {
+  console.log("Auth Debug:", {
     hasToken: !!token,
     hasUserId: !!userId,
-    userId: userId,
+    userId,
     userRole: currentUser.role,
     userName: currentUser.name,
-    userObject: currentUser
   });
+}
   
   // Check if user is authenticated
   useEffect(() => {
@@ -464,63 +483,78 @@ export function MentorshipChat() {
     }
   };
 
-  const handleSelectConversation = async (conversationId) => {
-    const conversation = conversations.find(conv => conv.id === conversationId);
-    if (!conversation) return;
+const handleSelectConversation = async (conversationId) => {
+  const conversation = conversationMap.get(conversationId);
 
-    setActiveConversationId(conversationId);
+  if (!conversation) return;
 
-    let participantIdToMarkRead = null;
+  setActiveConversationId(conversationId);
 
-    if (conversation.isSession && conversation.sessionData) {
-      // For session conversations, extract the other user's details from the session data
-      const session = conversation.sessionData;
-      const isMentor = session.mentor?._id === userId || session.mentor?.id === userId;
-      const otherUser = isMentor ? session.student : session.mentor;
+  let participantIdToMarkRead = null;
 
-      participantIdToMarkRead = otherUser?._id || otherUser?.id;
-      
-      setActiveParticipant({
-        participantId: participantIdToMarkRead,
-        name: otherUser?.name || conversation.mentorName,
-        role: isMentor ? 'Mentee' : 'Mentor',
-        avatar: otherUser?.profilePicture || conversation.mentorAvatar,
-        isSession: true,
-        sessionData: session
-      });
-    } else {
-      // For regular conversations
-      setActiveParticipant({
-        participantId: conversation.participantId,
-        name: conversation.mentorName,
-        role: conversation.mentorRole,
-        avatar: conversation.mentorAvatar,
-        isSession: false
-      });
-      participantIdToMarkRead = conversation.participantId;
-    }
+  if (conversation.isSession && conversation.sessionData) {
+    const session = conversation.sessionData;
+    const isMentor =
+      session.mentor?._id === userId ||
+      session.mentor?.id === userId;
 
-    // Mark as read in DB + update badge locally
-    if (participantIdToMarkRead) {
-      try {
-        await messageService.markMessagesAsRead(participantIdToMarkRead);
-      } catch (err) {
-        console.error('Failed to mark messages as read:', err);
-      } finally {
-        setConversations(prev => prev.map(conv =>
+    const otherUser = isMentor
+      ? session.student
+      : session.mentor;
+
+    participantIdToMarkRead =
+      otherUser?._id || otherUser?.id;
+
+    setActiveParticipant({
+      participantId: participantIdToMarkRead,
+      name: otherUser?.name || conversation.mentorName,
+      role: isMentor ? "Mentee" : "Mentor",
+      avatar:
+        otherUser?.profilePicture ||
+        conversation.mentorAvatar,
+      isSession: true,
+      sessionData: session,
+    });
+  } else {
+    setActiveParticipant({
+      participantId: conversation.participantId,
+      name: conversation.mentorName,
+      role: conversation.mentorRole,
+      avatar: conversation.mentorAvatar,
+      isSession: false,
+    });
+
+    participantIdToMarkRead =
+      conversation.participantId;
+  }
+
+  if (participantIdToMarkRead) {
+    try {
+      await messageService.markMessagesAsRead(
+        participantIdToMarkRead
+      );
+    } catch (err) {
+      console.error(
+        "Failed to mark messages as read:",
+        err
+      );
+    } finally {
+      setConversations((prev) =>
+        prev.map((conv) =>
           conv.participantId === participantIdToMarkRead
             ? { ...conv, unreadCount: 0 }
             : conv
-        ));
-      }
+        )
+      );
     }
-  };
+  }
+};
 
   // ---------------------- SKELETON LOADING COMPONENT ------------------------
   const SkeletonLoader = () => (
     <div className="flex h-full w-full bg-[#121212] overflow-hidden">
       {/* Sidebar Skeleton */}
-      <div className="hidden md:block w-[280px] flex-shrink-0 h-full border-r border-gray-800 bg-[#121212]">
+      <div className="hidden md:block w-[280px] lg:w-[320px] flex-shrink-0 h-full border-r border-gray-800 bg-[#121212]">
         <div className="p-4">
           <div className="h-6 bg-gray-700 rounded animate-pulse mb-4"></div>
           {[...Array(5)].map((_, i) => (
@@ -788,7 +822,7 @@ export function MentorshipChat() {
 
         {/* Context sidebar - 320px fixed width */}
         {activeParticipant && (
-          <div className="hidden lg:block w-[320px] flex-shrink-0 h-full border-l border-[#535353]/30">
+          <div className="hidden xl:block w-[320px] flex-shrink-0 h-full border-l border-[#535353]/30">
             <ContextSidebar 
               messages={messages} 
               mentee={{
